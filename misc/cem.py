@@ -51,6 +51,7 @@ class CEMMinimizer(object):
             S = self.distribution(self.nsamples)
             scores = (f(s) for s in S)
             elites = sorted(((td, s) for td, s in zip(scores, S) if td <= baseline), key=lambda x: x[0])[:int(self.relite*self.nsamples)]
+            print('nelites', len(elites))
             elite_arr = np.array([s for td, s in elites])
             if best is None:
                 best = elite_arr[0]
