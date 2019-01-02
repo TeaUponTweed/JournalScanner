@@ -10,6 +10,10 @@ from skimage.feature import canny
 from skimage.filters import scharr, gaussian
 from skimage.transform import integral_image, probabilistic_hough_line, hough_line, hough_line_peaks
 
+import statsmodels.api as sm
+from scipy import stats
+from scipy.signal import argrelextrema
+
 import matplotlib.pyplot as plt
 # import matplotlib
 # from matplotlib import cm
@@ -122,36 +126,57 @@ def test2():
 
 
 def test3():
-    # from statsmodels.nonparametric.kde import KDEUnivariate
-    import statsmodels.api as sm
-    from scipy import stats
-    # import matplotlib.pyplot as plt
-
     nobs = 300
-    # np.random.seed(1234)  # Seed random generator
     s = np.array(sorted(np.array(list(np.random.normal(size=nobs)) + list(np.random.normal(size=nobs)+10))))
     dens = sm.nonparametric.KDEUnivariate(s)
     dens.fit()
     e = np.array([dens.evaluate(ss) for ss in s])
-    from scipy.signal import argrelextrema
-    # mi, ma = argrelextrema(e, np.less)[0], argrelextrema(e, np.greater)[0]
     ma = argrelextrema(e, np.greater)[0]
-    # print(mi, ma)
-    # print(argrelextrema(e, np.greater)[0])
+
     plt.plot(s, e)
     plt.plot(s, stats.norm.pdf(s) + stats.norm.pdf(s, 10))
+
     for ix in ma:
         plt.plot(s[ix], e[ix], 'ro')
     plt.plot()
 
-    # plt.plot(s[:mi[0]+1], e[:mi[0]+1], 'r',
-    #  # s[mi[0]:mi[1]+1], e[mi[0]:mi[1]+1], 'g',
-    #  # s[mi[1]:], e[mi[1]:], 'b',
-    #  s[ma], e[ma], 'go',
-    #  s[mi], e[mi], 'ro')
     plt.show()
+
+
+def kdecluster(x):
+    x = np.array(sorted(x))
+    dens = sm.nonparametric.KDEUnivariate(x)
+    dens.fit()
+    y = np.array([dens.evaluate(xx) for xx in x])
+    f, ax = plt.subplots()
+    ax.plot(x, y)
+    plt.show()
+    extrema_ixs = argrelextrema(y, np.greater)[0]
+    return [x[ix] for ix in extrema_ixs]
+
+
+def test4():
+    # im = np.array(Image.open("pentagon.png").convert("L"))
+    im = np.array(Image.open("/Users/MichaelMason/Desktop/original-small.jpg").convert("L"))
+    n, m = im.shape
+    edges = scharr(im)
+    # edges = gaussian(scharr(im))
+    plt.imshow(edges)
+
+    ixs = list(bresenham(0, n//2, m-1,  n//2))
+    line = [float(ix) for ix, (j, i) in enumerate(ixs) if edges[i, j] > 0.1]
+    # line = [edges[i,j] for ix, (j, i) in enumerate(ixs)]
+    cluster_ixs = kdecluster(line)
+    print(cluster_ixs)
+    for i in cluster_ixs:
+        plt.plot(*ixs[int(np.round(i))], marker='x', color='k')
+
+    # plt.plot(*zip(*bresenham(0, n//2, m,  n//2)))
+    plt.show()
+
 
 if __name__ == '__main__':
     # test()
     # test2()
-    test3()
+    # test3()
+    test4()
