@@ -4,6 +4,7 @@ import argparse
 import imutils
 import cv2
 import matplotlib.pyplot as plt 
+from skimage.filters import scharr
 
 from skimage.feature import peak_local_max
 
@@ -28,16 +29,21 @@ def main():
 
     image = cv2.imread(args["image"])
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    im_rows,im_cols = gray.shape
     # gray = cv2.GaussianBlur(gray, (3, 3), 0)
     # print(gray.shape)
-    rows,cols = gray.shape
     # gray = resize(gray)
     # plt.imshow(gray)
     # plt.show()
 
-    edged = cv2.Canny(gray, 20, 100)
-    
-    angles = np.arange(0, 180, 1.0)
+    # edged = cv2.Canny(gray)
+    edged = scharr(gray)
+    edged = resize(edged)
+    # plt.imshow(edged)
+    # plt.show()
+
+    rows,cols = edged.shape
+    angles = np.arange(0, 185, 1.0)
     data = np.zeros((len(angles), cols))
     for i, angle in enumerate(angles):
         # rotated = imutils.rotate_bound(edged, angle)
@@ -49,18 +55,20 @@ def main():
         for j in range(cols):
             # TODO figure out extent dimension for scaling and aliasing
             data[i, j] += wakka[j]
-
-
-    # TODO make thresh dependednt on image size?
-    xy = peak_local_max(data, min_distance=10,threshold_abs=np.max(data)*.5)
-
-    # plt.imshow(data)
-    # plt.plot(*reversed(list(zip(*xy))),marker='x', linestyle='', color='r')
+    # plt.hist(data.flatten())
     # plt.show()
+    # TODO make thresh dependednt on image size?
+    xy = peak_local_max(data, min_distance=5,threshold_abs=np.max(data)*.5)
+    # print(xy)
+    plt.imshow(data)
+    plt.plot(*reversed(list(zip(*xy))),marker='x', linestyle='', color='r')
+    plt.show()
 
     asd = np.arange(-150, 150, 1)
     plt.imshow(image)
     for (rotation, extent) in xy:
+        # s_c = im_cols/cols
+        # s_r = im_rows/rows
         # extent = extent * cols / len(angles)
         print(extent, rotation)
         theta = np.radians(angles[rotation])
@@ -69,17 +77,19 @@ def main():
         dy = np.sin(theta)
         a = extent - cols/2
 
-        x = a*dx + cols/2
-        y = a*dy + rows/2
+        x = a*dx + cols/2-(cols-im_cols)/2
+        y = a*dy + rows/2-(rows-im_rows)/2
         # plt.plot([x], [y], linestyle='', marker='o', color='y')
         # plt.plot(asd *dx + x, asd * dy + y, linestyle=':', color='r')
         r = np.array([dx, dy])
+        # r = r / np.linalg.norm(r)
         R = np.array([
             [0, -1.0],
             [1.0, 0]
         ])
         dx,dy = R @ r
         plt.plot(asd * dx + x, asd * dy + y, linestyle=':', color='r')
+        plt.plot([x], [y], linestyle='', marker='o', color='y')
 
         '''
         dx = np.sin(theta)
