@@ -217,3 +217,8 @@ def main():
     # plt.show()
 if __name__ == '__main__':
     main()
+'''
+TODO
+* the four peaks are correct, so why is the quadrilateral wrong?
+The quad edges look a little off. Can they be refined?
+'''
