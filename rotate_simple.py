@@ -1,6 +1,7 @@
-# import the necessary packages
-import numpy as np
+import itertools
 import argparse
+
+import numpy as np
 import imutils
 import cv2
 import matplotlib.pyplot as plt 
@@ -20,6 +21,16 @@ def resize(im):
         value=color)
     return new_im
 
+def find_intercept(l1, l2):
+    (x1, y1, dx1, dy1) = l1
+    (x2, y2, dx2, dy2) = l2
+    A = np.array([[dx1, -dx2],[dy1,-dy2]])
+    b = np.array([x2-x1, y2-y1])
+    m, n = np.linalg.solve(A, b)
+    assert np.isclose(x1+m*dx1, x2+n*dx2)
+    assert np.isclose(y1+m*dy1, y2+n*dy2)
+    return x1+m*dx1, y1+m*dy1
+
 def main():
     # construct the argument parse and parse the arguments
     ap = argparse.ArgumentParser()
@@ -28,11 +39,21 @@ def main():
     args = vars(ap.parse_args())
 
     image = cv2.imread(args["image"])
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).astype(np.float32)
+
     im_rows,im_cols = gray.shape
     # gray = cv2.GaussianBlur(gray, (3, 3), 0)
     # edged = cv2.Canny(gray)
     edged = scharr(gray)
+    # equivalent to scharr https://stackoverflow.com/questions/46140823/combined-scharr-derivatives-in-opencv
+    # kernel = np.array([[-6, -10, 0],
+    #                    [-10, 0, 10],
+    #                    [0, 10, 6]])
+
+    # edged = np.abs(cv2.filter2D(gray, -1, kernel))
+
+    plt.imshow(edged)
+    plt.show()
     edged = resize(edged)
 
     rows,cols = edged.shape
@@ -53,6 +74,7 @@ def main():
 
     asd = np.arange(-150, 150, 1)
     plt.imshow(image)
+    lines = []
     for (rotation, extent) in xy:
         theta = np.radians(angles[rotation])
         dx = np.cos(theta)
@@ -67,11 +89,22 @@ def main():
             [1.0, 0]
         ])
         dx,dy = R @ r
+        lines.append((x,y,dx,dy))
         plt.plot(asd * dx + x, asd * dy + y, linestyle=':', color='r')
         plt.plot([x], [y], linestyle='', marker='o', color='y')
 
-    plt.show()
+    # plt.show()
+    intersection_points = []
+    for l1, l2 in itertools.combinations(lines, 2):
+        x, y = find_intercept(l1, l2)
+        if x < 0 or x > cols:
+            continue
+        if y < 0 or y > rows:
+            continue
+        intersection_points.append((x, y))
 
+    plt.plot(*zip(*intersection_points), linestyle='', marker='x', color='k')
+    plt.show()
 
 if __name__ == '__main__':
     main()
