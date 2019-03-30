@@ -4,7 +4,11 @@ import argparse
 import numpy as np
 import imutils
 import cv2
+import matplotlib
+matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt 
+import matplotlib.cm as cm
+
 from skimage.filters import scharr
 from skimage.draw import line_aa
 from skimage.feature import peak_local_max
@@ -115,7 +119,7 @@ def main():
     # plt.show()
 
     asd = np.arange(-150, 150, 1)
-    plt.imshow(image)
+    # plt.imshow(image)
     lines = []
     for (rotation, extent) in xy:
         score = data[rotation, extent]
@@ -141,9 +145,9 @@ def main():
     scores = []
     for l1, l2 in itertools.combinations(lines, 2):
         x, y = find_intercept(l1, l2)
-        if x < 0 or x > im_cols:
+        if x < 0 or x >= im_cols:
             continue
-        if y < 0 or y > im_rows:
+        if y < 0 or y >= im_rows:
             continue
         # scores.append()
         intersection_points.append((x, y))
@@ -151,6 +155,11 @@ def main():
     # plt.plot(*zip(*intersection_points), linestyle='', marker='x', color='k')
 
     print(len(intersection_points))
+    kernel = np.ones((5,5),np.float32)/25
+    this_is_dumb = cv2.filter2D(original_edged,-1,kernel)
+    # print(np.min(original_edged))
+    # print(np.max(original_edged))
+    # print('----')
     def gen_scored_points():
         for points in itertools.combinations(intersection_points, 4):
 
@@ -170,6 +179,8 @@ def main():
             score = 0
             last_delta = sorted_points[0] - sorted_points[-1]
             # for p1, p2 in ():
+            test = np.copy(original_edged)
+
             for i in range(4):
                 p1 = sorted_points[i]
                 p2 = sorted_points[(i+1)%4]
@@ -193,34 +204,56 @@ def main():
                 # p1 = np.minimum(p1, )
                 # p1 = (min(p1[0], im_cols-1), min(p1[1], im_rows-1))
                 # p2 = (min(p2[0], im_cols-1), min(p2[1], im_rows-1))
-                rr,cc,vals =line_aa(*p1, *p2)
+                # print(p1)
+                # print(p2)
+                rr,cc,vals =line_aa(p1[1], p1[0], p2[1], p2[0])
                 ix_1 = rr < im_rows-1
                 ix_2 = cc < im_cols-1
                 ix = ix_1 * ix_2
+                # test[rr[ix],cc[ix]] = 255
                 # print(rr)
                 # print(cc)
                 # print(vals)
-                score += np.sum(vals[ix] * original_edged[rr[ix], cc[ix]])/np.linalg.norm(delta)
+                score += np.sum(vals[ix] * this_is_dumb[rr[ix], cc[ix]])
 
+            # plt.imshow(test)
+            # plt.show()
             # score += np.sum(edged[line(*sorted_points[0], *sorted_points[1])])
             # score += np.sum(edged[line(*sorted_points[1], *sorted_points[2])])
             # score += np.sum(edged[line(*sorted_points[2], *sorted_points[3])])
             # score += np.sum(edged[line(*sorted_points[3], *sorted_points[0])])
             # plt.plot(*zip(*(sorted_points+[sorted_points[0]])), linestyle=':', marker='', color='r')
             # print(score)
-            yield score, sorted_points
+            yield score, sorted_points 
 
     wakka = sorted(gen_scored_points(), key=lambda x: x[0])
     for score, sorted_points in wakka[-10:]:
         if score == 0:
             continue
-        plt.imshow(original_edged)
-        plt.plot(*zip(*(sorted_points+[sorted_points[0]])), linestyle=':', marker='', color='r')
+        X = original_edged
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+
+        numrows, numcols = X.shape
+        def format_coord(x, y):
+            col = int(x+0.5)
+            row = int(y+0.5)
+            if col>=0 and col<numcols and row>=0 and row<numrows:
+                z = X[row,col]
+                return 'x=%1.4f, y=%1.4f, z=%1.4f'%(x, y, z)
+            else:
+                return 'x=%1.4f, y=%1.4f'%(x, y)
+
+        ax.imshow(X, cmap=cm.jet, interpolation='nearest')
         print('score=',score)
+        ax.plot(*zip(*(sorted_points+[sorted_points[0]])), linestyle=':', marker='', color='w')
+        ax.format_coord = format_coord
         plt.show()
-    # plt.show()
+
+
 if __name__ == '__main__':
     main()
+
 '''
 TODO
 * the four peaks are correct, so why is the quadrilateral wrong?
