@@ -95,22 +95,22 @@ def map_uv_to_xy(u, v, P0, P1, P2, P3):
     r2 = (P3 - P2)/np.linalg.norm(P3 - P2)
     r3 = (P0 - P3)/np.linalg.norm(P0 - P3)
     # rotate by 90deg to get normal vectors inward
-    N0 = -np.array([-r0[1],r0[0]])
-    N1 = -np.array([-r1[1],r1[0]])
-    N2 = -np.array([-r2[1],r2[0]])
-    N3 = -np.array([-r3[1],r3[0]])
+    N0 = np.array([-r0[1],r0[0]])
+    N1 = np.array([-r1[1],r1[0]])
+    N2 = np.array([-r2[1],r2[0]])
+    N3 = np.array([-r3[1],r3[0]])
 
     # x = (P0[0]*N0[0] - u*(P0[0]*N0[0]+P2[0]*N2[0]))/(N0[0]-u*(N0[0]+N2[0])) + (P0[0]*N1[0] - v*(P0[0]*N1[0]+P2[0]*N3[0]))/(N1[0]-v*(N1[0]+N3[0]))
     # y = (P0[1]*N0[1] - u*(P0[1]*N0[1]+P2[1]*N2[1]))/(N0[1]-u*(N0[1]+N2[1])) + (P0[1]*N1[1] - v*(P0[1]*N1[1]+P2[1]*N3[1]))/(N1[1]-v*(N1[1]+N3[1]))
     A = np.array([
-        [N0[0]-u*(N0[0]+N2[0]), N1[0]-v*(N1[0]+N3[0])],
-        [N0[1]-u*(N0[1]+N2[1]), N1[1]-v*(N1[1]+N3[1])]
+        [(1-u)*N0[0] - u*N2[0], (1-v)*N1[0] - v*N3[0]],
+        [(1-u)*N0[1] - u*N2[1], (1-v)*N1[1] - v*N3[1]]
     ])
     b = np.array([
-        P0[0]*N0[0] - u*(P0[0]*N0[0]+P2[0]*N2[0]) + P0[0]*N1[0] - v*(P0[0]*N1[0]+P2[0]*N3[0]),
-        P0[1]*N0[1] - u*(P0[1]*N0[1]+P2[1]*N2[1]) + P0[1]*N1[1] - v*(P0[1]*N1[1]+P2[1]*N3[1]),
+        (1-u)*P0[0]*N0[0] - u*P2[0]*N2[0] + (1-v)*P0[0]*N1[0] - v*P2[0]*N3[0],
+        (1-u)*P0[1]*N0[1] - u*P2[1]*N2[1] + (1-v)*P0[1]*N1[1] - v*P2[1]*N3[1],
     ])
-    return np.linalg.solve(A, b)
+    return np.linalg.solve(A.T, b)
     # return x, y
 
 def main():
