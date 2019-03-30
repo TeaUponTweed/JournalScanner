@@ -87,18 +87,8 @@ def main():
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).astype(np.float32)
 
     im_rows,im_cols = gray.shape
-    # gray = cv2.GaussianBlur(gray, (3, 3), 0)
-    # edged = cv2.Canny(gray)
     edged = scharr(gray)
-    # equivalent to scharr https://stackoverflow.com/questions/46140823/combined-scharr-derivatives-in-opencv
-    # kernel = np.array([[-6, -10, 0],
-    #                    [-10, 0, 10],
-    #                    [0, 10, 6]])
-
-    # edged = np.abs(cv2.filter2D(gray, -1, kernel))
-
-    # plt.imshow(edged)
-    # plt.show()
+ 
     original_edged = edged
     edged = resize(edged)
 
@@ -114,12 +104,8 @@ def main():
 
     # TODO make thresh dependednt on image size?
     xy = peak_local_max(data, min_distance=5,threshold_abs=np.max(data)*.3)
-    # plt.imshow(data)
-    # plt.plot(*reversed(list(zip(*xy))),marker='x', linestyle='', color='r')
-    # plt.show()
 
     asd = np.arange(-150, 150, 1)
-    # plt.imshow(image)
     lines = []
     for (rotation, extent) in xy:
         score = data[rotation, extent]
@@ -137,10 +123,7 @@ def main():
         ])
         dx,dy = R @ r
         lines.append((x,y,dx,dy))
-        # plt.plot(asd * dx + x, asd * dy + y, linestyle=':', color='r')
-        # plt.plot([x], [y], linestyle='', marker='o', color='y')
 
-    # plt.show()
     intersection_points = []
     scores = []
     for l1, l2 in itertools.combinations(lines, 2):
@@ -149,113 +132,60 @@ def main():
             continue
         if y < 0 or y >= im_rows:
             continue
-        # scores.append()
         intersection_points.append((x, y))
 
-    # plt.plot(*zip(*intersection_points), linestyle='', marker='x', color='k')
+    # kernel = np.ones((5,5),np.float32)/25
+    # this_is_dumb = cv2.filter2D(original_edged,-1,kernel)
 
-    print(len(intersection_points))
-    kernel = np.ones((5,5),np.float32)/25
-    this_is_dumb = cv2.filter2D(original_edged,-1,kernel)
-    # print(np.min(original_edged))
-    # print(np.max(original_edged))
-    # print('----')
     def gen_scored_points():
         for points in itertools.combinations(intersection_points, 4):
-
-            # points = [np.array(p) for p in points]
-            # print(points)
-            # score = sum(p[2] for p in points)
             points = set(points)
             sorted_points = [np.array(points.pop()[:2])]
-            # print(sorted_points)
             while len(points) > 0:
                 next_point = min(points, key=lambda x: np.linalg.norm(np.array(x)-sorted_points[-1] ))
                 points.remove(next_point)
-                # points.sort(key=lambda x: -np.linalg.norm(x, sorted_points[-1]))
                 sorted_points.append(next_point)
+
             sorted_points = [np.round(p).astype(int) for p in sorted_points]
-            # print(line(*sorted_points[0], *sorted_points[1]))
             score = 0
             last_delta = sorted_points[0] - sorted_points[-1]
-            # for p1, p2 in ():
             test = np.copy(original_edged)
 
             for i in range(4):
                 p1 = sorted_points[i]
                 p2 = sorted_points[(i+1)%4]
-                # if np.linalg.norm(p2 - p1) < 10:
-                #     score = 0
-                #     break
+
                 delta = p2 - p1
-                print('|delta|=',np.linalg.norm(delta))
+                # print('|delta|=',np.linalg.norm(delta))
+                # filter out small edges
                 if np.linalg.norm(delta) < min(im_rows, im_cols)/2:
                     score = 0
                     break
-
+                # filter out acute angles
                 if last_delta is not None:
                     angle = np.degrees(np.arccos(delta@last_delta/np.linalg.norm(delta)/np.linalg.norm(last_delta)))
-                    print('angle=', angle)
+                    # print('angle=', angle)
                     if angle < 70 or angle > 110:
                         score = 0
                         break
 
                 last_delta = delta
-                # p1 = np.minimum(p1, )
-                # p1 = (min(p1[0], im_cols-1), min(p1[1], im_rows-1))
-                # p2 = (min(p2[0], im_cols-1), min(p2[1], im_rows-1))
-                # print(p1)
-                # print(p2)
+
                 rr,cc,vals =line_aa(p1[1], p1[0], p2[1], p2[0])
                 ix_1 = rr < im_rows-1
                 ix_2 = cc < im_cols-1
                 ix = ix_1 * ix_2
-                # test[rr[ix],cc[ix]] = 255
-                # print(rr)
-                # print(cc)
-                # print(vals)
-                score += np.sum(vals[ix] * this_is_dumb[rr[ix], cc[ix]])
+                score += np.sum(vals[ix] * original_edged[rr[ix], cc[ix]])
 
-            # plt.imshow(test)
-            # plt.show()
-            # score += np.sum(edged[line(*sorted_points[0], *sorted_points[1])])
-            # score += np.sum(edged[line(*sorted_points[1], *sorted_points[2])])
-            # score += np.sum(edged[line(*sorted_points[2], *sorted_points[3])])
-            # score += np.sum(edged[line(*sorted_points[3], *sorted_points[0])])
-            # plt.plot(*zip(*(sorted_points+[sorted_points[0]])), linestyle=':', marker='', color='r')
-            # print(score)
             yield score, sorted_points 
 
-    wakka = sorted(gen_scored_points(), key=lambda x: x[0])
-    for score, sorted_points in wakka[-10:]:
-        if score == 0:
-            continue
-        X = original_edged
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
 
-        numrows, numcols = X.shape
-        def format_coord(x, y):
-            col = int(x+0.5)
-            row = int(y+0.5)
-            if col>=0 and col<numcols and row>=0 and row<numrows:
-                z = X[row,col]
-                return 'x=%1.4f, y=%1.4f, z=%1.4f'%(x, y, z)
-            else:
-                return 'x=%1.4f, y=%1.4f'%(x, y)
-
-        ax.imshow(X, cmap=cm.jet, interpolation='nearest')
-        print('score=',score)
-        ax.plot(*zip(*(sorted_points+[sorted_points[0]])), linestyle=':', marker='', color='w')
-        ax.format_coord = format_coord
-        plt.show()
+    score, sorted_points = max(gen_scored_points(), key=lambda x: x[0])
+    plt.imshow(image, cmap=cm.jet, interpolation='nearest')
+    print('score=',score)
+    plt.plot(*zip(*(sorted_points+[sorted_points[0]])), linestyle=':', marker='', color='k')
+    plt.show()
 
 
 if __name__ == '__main__':
     main()
-
-'''
-TODO
-* the four peaks are correct, so why is the quadrilateral wrong?
-The quad edges look a little off. Can they be refined?
-'''
