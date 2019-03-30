@@ -93,8 +93,8 @@ def main():
 
     # edged = np.abs(cv2.filter2D(gray, -1, kernel))
 
-    plt.imshow(edged)
-    plt.show()
+    # plt.imshow(edged)
+    # plt.show()
     original_edged = edged
     edged = resize(edged)
 
@@ -109,7 +109,7 @@ def main():
             data[i, j] += projection[j]
 
     # TODO make thresh dependednt on image size?
-    xy = peak_local_max(data, min_distance=5,threshold_abs=np.max(data)*.4)
+    xy = peak_local_max(data, min_distance=5,threshold_abs=np.max(data)*.3)
     # plt.imshow(data)
     # plt.plot(*reversed(list(zip(*xy))),marker='x', linestyle='', color='r')
     # plt.show()
@@ -161,14 +161,14 @@ def main():
             sorted_points = [np.array(points.pop()[:2])]
             # print(sorted_points)
             while len(points) > 0:
-                next_point = min(points, key=lambda x: (x[0]-sorted_points[-1][0])**2+(x[1]-sorted_points[-1][1])**2)
+                next_point = min(points, key=lambda x: np.linalg.norm(np.array(x)-sorted_points[-1] ))
                 points.remove(next_point)
                 # points.sort(key=lambda x: -np.linalg.norm(x, sorted_points[-1]))
                 sorted_points.append(next_point)
             sorted_points = [np.round(p).astype(int) for p in sorted_points]
             # print(line(*sorted_points[0], *sorted_points[1]))
             score = 0
-            last_delta = None
+            last_delta = sorted_points[0] - sorted_points[-1]
             # for p1, p2 in ():
             for i in range(4):
                 p1 = sorted_points[i]
@@ -178,6 +178,10 @@ def main():
                 #     break
                 delta = p2 - p1
                 print('|delta|=',np.linalg.norm(delta))
+                if np.linalg.norm(delta) < min(im_rows, im_cols)/2:
+                    score = 0
+                    break
+
                 if last_delta is not None:
                     angle = np.degrees(np.arccos(delta@last_delta/np.linalg.norm(delta)/np.linalg.norm(last_delta)))
                     print('angle=', angle)
@@ -196,7 +200,7 @@ def main():
                 # print(rr)
                 # print(cc)
                 # print(vals)
-                score += np.sum(vals[ix] * original_edged[rr[ix], cc[ix]])
+                score += np.sum(vals[ix] * original_edged[rr[ix], cc[ix]])/np.linalg.norm(delta)
 
             # score += np.sum(edged[line(*sorted_points[0], *sorted_points[1])])
             # score += np.sum(edged[line(*sorted_points[1], *sorted_points[2])])
