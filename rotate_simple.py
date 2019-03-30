@@ -41,7 +41,7 @@ def find_intercept(l1, l2):
 
 
 def map_uv_to_xy(u, v, P0, P1, P2, P3):
-    # find pointing unit vectors assuming CCW points
+    # find pointing unit vectors assuming clock-wise points
     r0 = (P1 - P0)/np.linalg.norm(P1 - P0)
     r1 = (P2 - P1)/np.linalg.norm(P2 - P1)
     r2 = (P3 - P2)/np.linalg.norm(P3 - P2)
@@ -134,17 +134,13 @@ def main():
             continue
         intersection_points.append((x, y))
 
-    # kernel = np.ones((5,5),np.float32)/25
-    # this_is_dumb = cv2.filter2D(original_edged,-1,kernel)
-
     def gen_scored_points():
         for points in itertools.combinations(intersection_points, 4):
-            points = set(points)
+            points = sorted(points, key=lambda x: -sum(x))
             sorted_points = [np.array(points.pop()[:2])]
             while len(points) > 0:
-                next_point = min(points, key=lambda x: np.linalg.norm(np.array(x)-sorted_points[-1] ))
-                points.remove(next_point)
-                sorted_points.append(next_point)
+                points.sort(key=lambda x: -np.linalg.norm(np.array(x)-sorted_points[-1]))
+                sorted_points.append(points.pop())
 
             sorted_points = [np.round(p).astype(int) for p in sorted_points]
             score = 0
@@ -181,6 +177,7 @@ def main():
 
 
     score, sorted_points = max(gen_scored_points(), key=lambda x: x[0])
+    print(sorted_points)
     plt.imshow(image, cmap=cm.jet, interpolation='nearest')
     print('score=',score)
     plt.plot(*zip(*(sorted_points+[sorted_points[0]])), linestyle=':', marker='', color='k')
