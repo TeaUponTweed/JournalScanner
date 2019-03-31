@@ -87,18 +87,18 @@ def map_uv_to_xy(u, v, P0, P1, P2, P3):
     y=(vLI*uDA-uFC*vJG)/(vJG*uEB-vKH*uDA)
     return x, y
 
-# @njit
+@njit
 def find_normals(P0, P1, P2, P3):
     # find pointing unit vectors assuming clock-wise points
-    r0 = (P1 - P0)/np.linalg.norm(P1 - P0)
-    r1 = (P2 - P1)/np.linalg.norm(P2 - P1)
-    r2 = (P3 - P2)/np.linalg.norm(P3 - P2)
-    r3 = (P0 - P3)/np.linalg.norm(P0 - P3)
+    r10 = (P1 - P0)/np.linalg.norm(P1 - P0)
+    r21 = (P2 - P1)/np.linalg.norm(P2 - P1)
+    r32 = (P3 - P2)/np.linalg.norm(P3 - P2)
+    r03 = (P0 - P3)/np.linalg.norm(P0 - P3)
     # rotate by 90deg to get normal vectors inward
-    N0 = np.array([-r0[1],r0[0]])
-    N1 = np.array([-r1[1],r1[0]])
-    N2 = np.array([-r2[1],r2[0]])
-    N3 = np.array([-r3[1],r3[0]])
+    N0 = np.array([-r03[1],r03[0]])
+    N1 = np.array([-r10[1],r10[0]])
+    N2 = np.array([-r21[1],r21[0]])
+    N3 = np.array([-r32[1],r32[0]])
     return N0, N1, N2, N3
 
 def map_uv_to_xy(u, v, P0, P1, P2, P3, N0, N1, N2, N3):
@@ -106,22 +106,35 @@ def map_uv_to_xy(u, v, P0, P1, P2, P3, N0, N1, N2, N3):
 
     # x = (P0[0]*N0[0] - u*(P0[0]*N0[0]+P2[0]*N2[0]))/(N0[0]-u*(N0[0]+N2[0])) + (P0[0]*N1[0] - v*(P0[0]*N1[0]+P2[0]*N3[0]))/(N1[0]-v*(N1[0]+N3[0]))
     # y = (P0[1]*N0[1] - u*(P0[1]*N0[1]+P2[1]*N2[1]))/(N0[1]-u*(N0[1]+N2[1])) + (P0[1]*N1[1] - v*(P0[1]*N1[1]+P2[1]*N3[1]))/(N1[1]-v*(N1[1]+N3[1]))
+    '''
     A = np.array([
         [(1-u)*N0[0] - u*N2[0], (1-v)*N1[0] - v*N3[0]],
         [(1-u)*N0[1] - u*N2[1], (1-v)*N1[1] - v*N3[1]]
     ])
     b = np.array([
         (1-u)*P0[0]*N0[0] - u*P2[0]*N2[0] + (1-u)*P0[1]*N0[1] - u*P2[1]*N2[1],
-        (1-v)*P0[1]*N1[1] - v*P2[1]*N3[1] + (1-v)*P0[0]*N1[0] - v*P2[0]*N3[0],
+        (1-v)*P0[0]*N1[0] - v*P2[0]*N3[0] + (1-v)*P0[1]*N1[1] - v*P2[1]*N3[1],
     ])
     return np.linalg.solve(A.T, b)
-    # return x, y
 
+    '''
+    A = np.array([
+        u*N2-(1-u)*N0,
+        v*N3-(1-v)*N1,
+    ])
+    b = np.array([
+        u*P2@N2-(1-u)*P0@N0,
+        v*P3@N3-(1-v)*P0@N1
+    ])
+    return np.linalg.solve(A, b)
+
+# def do_thing()
 def main():
     image = cv2.imread(sys.argv[1])
-    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(np.float32)
+    original_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(np.float32)
     # TODO scale down image intelligently
-    gray = block_reduce(gray, (8, 8))
+    SHRINK_FACTOR=8
+    gray = block_reduce(original_gray, (SHRINK_FACTOR, SHRINK_FACTOR))
     print(gray.shape)
     im_rows,im_cols = gray.shape
     edged = scharr(gray)
@@ -212,7 +225,6 @@ def main():
     print(sorted_points)
     plt.imshow(gray, cmap=cm.gray, interpolation='nearest')
     print('score=',score)
-    plt.plot(*zip(*(sorted_points+[sorted_points[0]])), linestyle=':', marker='', color='r')
     # plt.show()
 
     # undistort image
@@ -223,38 +235,56 @@ def main():
     # print(height_pixels)
     # to_interp = np.zeros((height_pixels, width_pixels, 2))
     wakka = [p.astype(float) for p in sorted_points]
-    out = np.zeros((height_pixels, width_pixels))
     normals = find_normals(*wakka)
+    color = ['r','b','g','k']
     for i in range(4):
-        base = wakka[i]+deltas[(i+1)%4]/2
+        base = wakka[i]+deltas[i]/2
         # print(normals[i])
         # xy =  # + normals[i]*np.array([0, 10])
         # print(xy)
+        plt.plot([sorted_points[i][0]], [sorted_points[i][1]], linestyle='', marker='x', color=color[i])
 
         plt.plot(
             [base[0], base[0] + normals[i][0]*10],
             [base[1], base[1] + normals[i][1]*10],
-            color='k'
+            color=color[i]
         )
+    print(sorted_points[0])
+    print(sorted_points[1])
+    print(sorted_points[2])
+    print(sorted_points[3])
+    print(map_uv_to_xy(0, 0, *wakka, *normals))
+    print(map_uv_to_xy(1, 0, *wakka, *normals))
+    print(map_uv_to_xy(1, 1, *wakka, *normals))
+    print(map_uv_to_xy(0, 1, *wakka, *normals))
+    print('ere')
     plt.show()
     # plt.imshow
+    out = np.zeros((height_pixels, width_pixels))
     for i in range(height_pixels):
-        # print(i)
+        print(i)
         to_interp = []
 
         for j in range(width_pixels):
-            x, y = map_uv_to_xy(i/height_pixels, j/width_pixels, *wakka, *normals)
+            x, y = map_uv_to_xy(j/width_pixels, i/height_pixels, *wakka, *normals)
+            if x > width_pixels:
+                # print(x)
+                continue
+            if y > height_pixels:
+                # print(x) 
+                continue
+            out[i,j] = gray[int(y),int(x)]
             # x, y = blarg(j/width_pixels, i/height_pixels, *wakka)
             # print(x, y)
-            to_interp.append([y, x])
+            # to_interp.append([y, x])
             # to_interp[i, j, :] = (x, y)
         # print(to_interp)
         # to_interp = np.array(to_interp)
         # print(to_interp.shape)
         # print(gray.shape)
 
-        out[i,:] = map_coordinates(gray, list(zip(*to_interp)), order=1)
-    plt.imshow(out)
+        # out[i,:] = map_coordinates(gray, list(zip(*to_interp)), order=1)
+    plt.imshow(out, cmap=cm.gray, interpolation='nearest')
     plt.show()
 
 
