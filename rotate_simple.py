@@ -187,9 +187,9 @@ def main():
 
     # undistort image
     width_over_height = 11/8.5
-    width_pixels = SHRINK_FACTOR*int(np.round(max(map(np.linalg.norm, deltas)))) # assumes wide image
-    height_pixels = SHRINK_FACTOR*int(np.round(max(map(np.linalg.norm, deltas))/width_over_height))
-    sorted_points = [p.astype(float)*SHRINK_FACTOR for p in sorted_points]
+    width_pixels = int(np.round(max(map(np.linalg.norm, deltas)))) # assumes wide image
+    height_pixels = int(np.round(max(map(np.linalg.norm, deltas))/width_over_height))
+    sorted_points = [p.astype(float) for p in sorted_points]
 
     # TODO make this optional
     # color = ['r','b','g','k']
@@ -217,7 +217,7 @@ def main():
     # print(map_uv_to_xy(1, 1, *wakka, *normals))
     # print(map_uv_to_xy(0, 1, *wakka, *normals))
 
-    out = get_square_image(original_gray, width_pixels, height_pixels, sorted_points)
+    out = get_square_image(gray, width_pixels, height_pixels, sorted_points)
 
     plt.imshow(out, cmap=cm.gray, interpolation='nearest')
     plt.show()
