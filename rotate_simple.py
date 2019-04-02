@@ -44,49 +44,6 @@ def find_intercept(l1, l2):
         assert np.isclose(y1+m*dy1, y2+n*dy2)
         return x1+m*dx1, y1+m*dy1
 
-# @njit
-def map_uv_to_xy(u, v, P0, P1, P2, P3):
-    # find pointing unit vectors assuming clock-wise points
-    r0 = (P1 - P0)/np.linalg.norm(P1 - P0)
-    r1 = (P2 - P1)/np.linalg.norm(P2 - P1)
-    r2 = (P3 - P2)/np.linalg.norm(P3 - P2)
-    r3 = (P0 - P3)/np.linalg.norm(P0 - P3)
-    # rotate by 90deg to get normal vectors inward
-    N0 = np.array([-r0[1],r0[0]])
-    N1 = np.array([-r1[1],r1[0]])
-    N2 = np.array([-r2[1],r2[0]])
-    N3 = np.array([-r3[1],r3[0]])
-    # do math https://math.stackexchange.com/questions/13404/mapping-irregular-quadrilateral-to-a-rectangle
-    A=N0[0]
-    B=N0[1]
-    C=-P0@N0
-    D=N0[0]+N2[0]
-    E=N0[1]+N2[1]
-    F=-P0@N0-P2@N2
-
-    G=N1[0]
-    H=N1[1]
-    I=-P0@N1
-    J=N1[0]+N3[0]
-    K=N1[1]+N3[1]
-    L=-P0@N1-P2@N3
-
-    uDA=u*(D-A)
-    uEB=u*(E-B)
-    uFC=u*(F-C)
-
-    vJG=v*(J-G)
-    vKH=v*(K-H)
-    vLI=v*(L-I)
-    print(vJG*uEB)
-    print(vKH*uDA)
-    print('***')
-    if np.isclose(vJG*uEB-vKH*uDA, 0):
-        return 0, 0
-    x=(vKH*uFC-vLI*uEB)/(vJG*uEB-vKH*uDA)
-    y=(vLI*uDA-uFC*vJG)/(vJG*uEB-vKH*uDA)
-    return x, y
-
 @njit
 def find_normals(P):
     # find pointing unit vectors assuming clock-wise points
@@ -228,9 +185,9 @@ def main():
 
     # undistort image
     width_over_height = 11/8.5
-    width_pixels = int(np.round(max(map(np.linalg.norm, deltas)))) # assumes wide image
-    height_pixels = int(np.round(max(map(np.linalg.norm, deltas))/width_over_height))
-    sorted_points = [p.astype(float) for p in sorted_points]
+    width_pixels = SHRINK_FACTOR*int(np.round(max(map(np.linalg.norm, deltas)))) # assumes wide image
+    height_pixels = SHRINK_FACTOR*int(np.round(max(map(np.linalg.norm, deltas))/width_over_height))
+    sorted_points = [p.astype(float)*SHRINK_FACTOR for p in sorted_points]
 
     # TODO make this optional
     # color = ['r','b','g','k']
@@ -258,7 +215,7 @@ def main():
     # print(map_uv_to_xy(1, 1, *wakka, *normals))
     # print(map_uv_to_xy(0, 1, *wakka, *normals))
 
-    out = get_square_image(gray, width_pixels, height_pixels, sorted_points)
+    out = get_square_image(original_gray, width_pixels, height_pixels, sorted_points)
 
     plt.imshow(out, cmap=cm.gray, interpolation='nearest')
     plt.show()
