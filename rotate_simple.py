@@ -59,30 +59,32 @@ def find_normals(P):
     return [N0, N1, N2, N3]
 
 @njit
-def map_uv_to_xy(u, v, P, N, A, b):
+def map_uv_to_xy(u, v, P, N):
+    A = np.zeros((2,2))
+    b = np.zeros(2)
     A[0, :] = u*N[2]-(1-u)*N[0]
     A[1, :] = v*N[3]-(1-v)*N[1]
-    b[0,0] = u*P[2]@N[2]-(1-u)*P[0]@N[0]
-    b[1,0] = v*P[3]@N[3]-(1-v)*P[0]@N[1]
+    b[0] = u*P[2]@N[2]-(1-u)*P[0]@N[0]
+    b[1] = v*P[3]@N[3]-(1-v)*P[0]@N[1]
     return np.linalg.solve(A, b)
 
-@njit
+@njit(parallel=True)
 def get_square_image(gray, width_pixels, height_pixels, points):
     normals = find_normals(points)
-    A = np.zeros((2,2))
-    b = np.zeros((2, 1))
     out = np.zeros((height_pixels, width_pixels))
     for i in range(height_pixels):
         for j in range(width_pixels):
-            xy = map_uv_to_xy(j/width_pixels, i/height_pixels, points, normals, A, b)
-            if xy[0,0] > width_pixels:
-                continue
-            if xy[1,0] > height_pixels:
-                continue
-            r = int(xy[1,0])
-            c = int(xy[0,0])
-            val = gray[r,c]
-            out[i,j] = val
+            # TODO this function does not vary quicky. Can I interpolate between sample points?
+            xy = map_uv_to_xy(j/width_pixels, i/height_pixels, points, normals)
+            if xy[0] > width_pixels:
+                val = 0
+            elif xy[1] > height_pixels:
+                val = 0
+            else:
+                r = int(xy[1])
+                c = int(xy[0])
+                val = gray[r,c]
+                out[i,j] = val
 
     return out
 
