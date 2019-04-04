@@ -58,15 +58,33 @@ def find_normals(P):
     N3 = np.array([-r32[1],r32[0]])
     return [N0, N1, N2, N3]
 
+
 @njit
 def map_uv_to_xy(u, v, P, N):
-    A = np.zeros((2,2))
-    b = np.zeros(2)
+    '''
     A[0, :] = u*N[2]-(1-u)*N[0]
     A[1, :] = v*N[3]-(1-v)*N[1]
     b[0] = u*P[2]@N[2]-(1-u)*P[0]@N[0]
     b[1] = v*P[3]@N[3]-(1-v)*P[0]@N[1]
     return np.linalg.solve(A, b)
+    '''
+    nu = 1 - u
+    nv = 1 - v
+    '''
+    A =
+    u*N[2][0]-nu*N[0][0]  u*N[2][1]-nu*N[0][1]
+    v*N[3][0]-nv*N[1][0]  v*N[3][1]-nv*N[1][1]
+
+    A_inv =
+     v*N[3][1]-nv*N[1][1]  -u*N[2][1]+nu*N[0][1]
+    -v*N[3][0]+nv*N[1][0]   u*N[2][0]-nu*N[0][0]
+    
+    '''
+    b_0 = u*(P[2][0]*N[2][0] + P[2][1]*N[2][1])-nu*(P[0][0]*N[0][0] + P[0][1]*N[0][1])
+    b_1 = v*(P[3][0]*N[3][0] + P[3][1]*N[3][1])-nv*(P[0][0]*N[1][0] + P[0][1]*N[1][1])
+    x = b_0 * ( v*N[3][1]-nv*N[1][1]) + b_1*(-u*N[2][1]+nu*N[0][1])
+    y = b_0 * (-v*N[3][0]+nv*N[1][0]) + b_1*( u*N[2][0]-nu*N[0][0])
+    return x, y
 
 @njit(parallel=True)
 def get_square_image(gray, width_pixels, height_pixels, points):
@@ -182,14 +200,14 @@ def main():
 
     score, sorted_points, deltas = max(gen_scored_points(), key=lambda x: x[0])
     print(sorted_points)
-    plt.imshow(gray, cmap=cm.gray, interpolation='nearest')
+    # plt.imshow(gray, cmap=cm.gray, interpolation='nearest')
     print('score=',score)
 
     # undistort image
     width_over_height = 11/8.5
-    width_pixels = int(np.round(max(map(np.linalg.norm, deltas)))) # assumes wide image
-    height_pixels = int(np.round(max(map(np.linalg.norm, deltas))/width_over_height))
-    sorted_points = [p.astype(float) for p in sorted_points]
+    width_pixels = SHRINK_FACTOR*int(np.round(max(map(np.linalg.norm, deltas)))) # assumes wide image
+    height_pixels = SHRINK_FACTOR*int(np.round(max(map(np.linalg.norm, deltas))/width_over_height))
+    sorted_points = [p.astype(float)*SHRINK_FACTOR for p in sorted_points]
 
     # TODO make this optional
     # color = ['r','b','g','k']
@@ -217,7 +235,7 @@ def main():
     # print(map_uv_to_xy(1, 1, *wakka, *normals))
     # print(map_uv_to_xy(0, 1, *wakka, *normals))
 
-    out = get_square_image(gray, width_pixels, height_pixels, sorted_points)
+    out = get_square_image(original_gray, width_pixels, height_pixels, sorted_points)
 
     plt.imshow(out, cmap=cm.gray, interpolation='nearest')
     plt.show()
