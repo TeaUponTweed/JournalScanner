@@ -16,7 +16,7 @@ from skimage.draw import line_aa
 from skimage.feature import peak_local_max
 from skimage.measure import block_reduce
 
-from numba import njit, jit
+from numba import njit, jit, prange
 
 def resize(im):
     desired_size = max(im.shape)
@@ -86,7 +86,7 @@ def map_uv_to_xy(u, v, P, N):
     y = b_0 * (-v*N[3][0]+nv*N[1][0]) + b_1*( u*N[2][0]-nu*N[0][0])
     return x, y
 
-@njit(parallel=True)
+@njit
 def get_square_image(gray, width_pixels, height_pixels, points):
     normals = find_normals(points)
     out = np.zeros((height_pixels, width_pixels))
