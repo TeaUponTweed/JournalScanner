@@ -10,12 +10,14 @@ import matplotlib
 matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt 
 import matplotlib.cm as cm
+from scipy import signal
 
 from skimage.filters import scharr
 from skimage.draw import line_aa
 from skimage.feature import peak_local_max
 from skimage.measure import block_reduce
-
+# import skimage
+from skimage.segmentation import mark_boundaries, slic
 from numba import njit, jit, prange
 
 def resize(im):
@@ -105,6 +107,76 @@ def get_square_image(gray, width_pixels, height_pixels, points):
                 out[i,j] = val
 
     return out
+
+# TODO
+# * Segment out edges and set them to white
+# * adaptive threshold that is consistent between nearby superpixels
+
+def mad(x):
+    return np.median(np.abs(x  - np.median(x)))
+
+import bisect
+
+def find_le_ix(a, x):
+    
+    'Find rightmost value less than or equal to x'
+    i = bisect.bisect_right(a, x)
+    if i:
+        return i-1
+    raise ValueError
+
+def estimate_threshold(vals, plot=False):
+    x = sorted(vals)
+    y = np.linspace(0, 1, len(x))
+    print(len(x))
+    dydx = []
+    dy = 1/len(x)
+    for i in range(len(x) - 1):
+        dx = x[i+1] - x[i]
+        if dx == 0:
+            dy += 1/len(x)
+        else:
+            dydx.append((x[i], dy/dx))
+            dy = 1/len(x)
+
+    a, b = zip(*dydx)
+
+    if plot:
+        f, (ax1, ax2) = plt.subplots(2)
+        ax1.plot(a, b)
+
+    bdiff = np.diff(b)
+
+    if plot:
+        ax2.plot(a[:-1], bdiff)
+    s = mad(bdiff)
+    bdiff = signal.medfilt(bdiff, 5)
+
+    if plot:
+        ax2.plot(a[:-1], bdiff)
+        ax2.axhline(3*s)
+        ax2.axhline(-3*s)
+
+    medx = x[int(len(x)/2)]
+    ix = find_le_ix(a, medx)
+    was_above = False
+    maxb = np.max(b)
+    while ix > 0:
+        if abs(bdiff[ix]) < 3*s:
+            if was_above and b[ix] < maxb/10:
+                break
+        else:
+            was_above = True
+
+        ix -= 1
+    thresh = a[ix]
+
+    if plot:
+        ax2.axvline(thresh)
+        plt.show()
+
+    return thresh
+
 
 
 def main():
@@ -236,8 +308,20 @@ def main():
     # print(map_uv_to_xy(0, 1, *wakka, *normals))
 
     out = get_square_image(original_gray, width_pixels, height_pixels, sorted_points)
+    segments = slic(out, multichannel=False)
+    segnemt_nums = set(segments.flatten())
+    thresh_arr = np.array(out.shape, out.dtype)
+    threshed = np.zeros(out.shape, np.bool)
+    for seg in segnemt_nums:
+        print(seg)
+        mask = segments == seg
+        thresh = estimate_threshold(out[mask])
+        mask = (segments == seg) & (out > thresh)
+        threshed[mask] = True
 
-    plt.imshow(out, cmap=cm.gray, interpolation='nearest')
+    plt.imshow(threshed)
+    # plt.imshow(mark_boundaries(out/255.0, segments), cmap=cm.gray, interpolation='nearest')
+
     plt.show()
 
 
