@@ -15,6 +15,8 @@ from skimage.filters import scharr
 from skimage.draw import line_aa
 from skimage.feature import peak_local_max
 from skimage.measure import block_reduce
+from skimage.segmentation import slic
+from skimage.segmentation import mark_boundaries
 
 from numba import njit, jit, prange
 
@@ -80,11 +82,17 @@ def map_uv_to_xy(u, v, P, N):
     -v*N[3][0]+nv*N[1][0]   u*N[2][0]-nu*N[0][0]
     
     '''
+    A_a = u*N[2][0]-nu*N[0][0]
+    A_b = u*N[2][1]-nu*N[0][1]
+    A_c = v*N[3][0]-nv*N[1][0]
+    A_d = v*N[3][1]-nv*N[1][1]
+
     b_0 = u*(P[2][0]*N[2][0] + P[2][1]*N[2][1])-nu*(P[0][0]*N[0][0] + P[0][1]*N[0][1])
     b_1 = v*(P[3][0]*N[3][0] + P[3][1]*N[3][1])-nv*(P[0][0]*N[1][0] + P[0][1]*N[1][1])
-    x = b_0 * ( v*N[3][1]-nv*N[1][1]) + b_1*(-u*N[2][1]+nu*N[0][1])
-    y = b_0 * (-v*N[3][0]+nv*N[1][0]) + b_1*( u*N[2][0]-nu*N[0][0])
-    return x, y
+    x = b_0* A_d + b_1*-A_b
+    y = b_0*-A_c + b_1* A_a
+    det_A = A_a*A_d - A_b*A_c
+    return x/det_A, y/det_A
 
 @njit
 def get_square_image(gray, width_pixels, height_pixels, points):
@@ -109,7 +117,7 @@ def get_square_image(gray, width_pixels, height_pixels, points):
 
 def main():
     image = cv2.imread(sys.argv[1])
-    original_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(np.float32)
+    original_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(np.float64)
     # TODO scale down image intelligently
     SHRINK_FACTOR=8
     gray = block_reduce(original_gray, (SHRINK_FACTOR, SHRINK_FACTOR))
@@ -235,9 +243,21 @@ def main():
     # print(map_uv_to_xy(1, 1, *wakka, *normals))
     # print(map_uv_to_xy(0, 1, *wakka, *normals))
 
-    out = get_square_image(original_gray, width_pixels, height_pixels, sorted_points)
+    out = get_square_image(original_gray, width_pixels, height_pixels, sorted_points)/256
+    plt.imshow(out)
+    plt.show()
+    print(out)
+    # apply SLIC and extract (approximately) the supplied number
+    # of segments
+    segments = slic(image)
+ 
+    # show the output of SLIC
+    # fig = plt.figure("Superpixels -- %d segments" % (numSegments))
+    # ax = fig.add_subplot(1, 1, 1)
+    plt.imshow(mark_boundaries(image, segments))
+    # plt.axis("off")
 
-    plt.imshow(out, cmap=cm.gray, interpolation='nearest')
+    # plt.imshow(out, cmap=cm.gray, interpolation='nearest')
     plt.show()
 
 
