@@ -2,6 +2,7 @@ import sys
 import itertools
 
 import numpy as np
+import scipy as sp
 from scipy.ndimage.interpolation import map_coordinates
 
 import imutils
@@ -46,7 +47,7 @@ def find_intercept(l1, l2):
         assert np.isclose(y1+m*dy1, y2+n*dy2)
         return x1+m*dx1, y1+m*dy1
 
-@njit
+# @njit
 def find_normals(P):
     # find pointing unit vectors assuming clock-wise points
     r10 = (P[1] - P[0])/np.linalg.norm(P[1] - P[0])
@@ -61,7 +62,7 @@ def find_normals(P):
     return [N0, N1, N2, N3]
 
 
-@njit
+# @njit
 def map_uv_to_xy(u, v, P, N):
     '''
     A[0, :] = u*N[2]-(1-u)*N[0]
@@ -86,76 +87,127 @@ def map_uv_to_xy(u, v, P, N):
     b_1 = v*(P[3][0]*N[3][0] + P[3][1]*N[3][1])-nv*(P[0][0]*N[1][0] + P[0][1]*N[1][1])
     x = b_0 * ( v*N[3][1]-nv*N[1][1]) + b_1*(-u*N[2][1]+nu*N[0][1])
     y = b_0 * (-v*N[3][0]+nv*N[1][0]) + b_1*( u*N[2][0]-nu*N[0][0])
-    return x, y
+    # print(u,v,'->',int(x),int(y))
+    return np.array([x, y])
+
+# @njit
+def get_sample_xy_points(points, normals, npoints, height_pixels, width_pixels):
+    out_x = np.zeros((npoints, npoints))
+    out_y = np.zeros((npoints, npoints))
+    u = np.linspace(0, 1, npoints)
+    v = np.linspace(0, 1, npoints)
+    for i in range(npoints):
+        for j in range(npoints):
+            xy = map_uv_to_xy(u[j], v[i], points, normals)
+            r = int(xy[1])
+            c = int(xy[0])
+            if r < height_pixels:
+                out_y[i,j] = r  
+            else:
+                out_y[i,j] = height_pixels - 1
+
+            if c < width_pixels:
+                out_x[i,j] = c
+            else:
+                out_x[i,j] = width_pixels - 1
+
+    return u, v, out_x, out_y
 
 @njit
+def get_square_impl(xx, yy, gray):
+    out = np.empty(gray.shape, gray.dtype)
+    for i in range(xx.shape[0]):
+        for j in range(xx.shape[1]):
+            out[i, j] = gray[yy[i, j], xx[i, j]]
+    return out
+
 def get_square_image(gray, width_pixels, height_pixels, points):
     normals = find_normals(points)
     out = np.zeros((height_pixels, width_pixels))
-    for i in range(height_pixels):
-        for j in range(width_pixels):
-            # TODO this function does not vary quicky. Can I interpolate between sample points?
-            xy = map_uv_to_xy(j/width_pixels, i/height_pixels, points, normals)
-            if xy[0] > width_pixels:
-                val = 0
-            elif xy[1] > height_pixels:
-                val = 0
-            else:
-                r = int(xy[1])
-                c = int(xy[0])
-                val = gray[r,c]
-                out[i,j] = val
+    u, v, x_map, y_map = get_sample_xy_points(points, normals, 100, height_pixels, width_pixels)
 
-    return out
+    x_func = sp.interpolate.interp2d(u, v, x_map)
+    y_func = sp.interpolate.interp2d(u, v, y_map)
+    u = np.linspace(0,1,width_pixels)
+    v = np.linspace(0,1,height_pixels)
 
+    # uu, vv = np.meshgrid(u, v)
+
+    xx = x_func(u, v)
+    np.rint(xx, out=xx)
+    np.clip(xx, a_min=0, a_max=None, out=xx)
+    xx = xx.astype(np.int)
+
+    yy = y_func(u, v)
+    np.rint(yy, out=yy)
+    np.clip(yy, a_min=0, a_max=None, out=yy)
+    yy = yy.astype(np.int)
+
+    return get_square_impl(xx, yy, gray)
+
+    # print(xx.shape)
+    # print(yy.shape)
+    # for i in range(height_pixels):
+    #     for j in range(width_pixels):
+    #         # TODO this function does not vary quicky. Can I interpolate between sample points?
+    #         xy = map_uv_to_xy(j/width_pixels, i/height_pixels, points, normals)
+    #         if xy[0] > width_pixels:
+    #             val = 0
+    #         elif xy[1] > height_pixels:
+    #             val = 0
+    #         else:
+    #             r = int(xy[1])
+    #             c = int(xy[0])
+    #             val = gray[r,c]
+    #             out[i,j] = val
+
+    # return out
+ 
 # TODO
 # * Segment out edges and set them to white
 # * adaptive threshold that is consistent between nearby superpixels
-
+@njit
 def mad(x):
     return np.median(np.abs(x  - np.median(x)))
 
-import bisect
 
+@njit
 def find_le_ix(a, x):
     
     'Find rightmost value less than or equal to x'
-    i = bisect.bisect_right(a, x)
+    i = np.searchsorted(a, x)
     if i:
         return i-1
     raise ValueError
+@njit
+def moving_average(a, n):
+    cumsum = np.cumsum(a)
+    return (cumsum[n:] - cumsum[:-n])/n
 
-def estimate_threshold(vals, plot=False):
-    x = sorted(vals)
+@njit
+def estimate_threshold(x):
+    x = np.sort(x)
+    # x = sorted(vals)
+    # x.sort()
     y = np.linspace(0, 1, len(x))
     print(len(x))
-    dydx = []
+    a, b = [], []
     dy = 1/len(x)
     for i in range(len(x) - 1):
         dx = x[i+1] - x[i]
         if dx == 0:
             dy += 1/len(x)
         else:
-            dydx.append((x[i], dy/dx))
+            a.append(x[i])
+            b.append(dy/dx)
             dy = 1/len(x)
 
-    a, b = zip(*dydx)
-
-    if plot:
-        f, (ax1, ax2) = plt.subplots(2)
-        ax1.plot(a, b)
-
+    a = np.array(a)
+    b = np.array(b)
     bdiff = np.diff(b)
 
-    if plot:
-        ax2.plot(a[:-1], bdiff)
     s = mad(bdiff)
-    bdiff = signal.medfilt(bdiff, 5)
-
-    if plot:
-        ax2.plot(a[:-1], bdiff)
-        ax2.axhline(3*s)
-        ax2.axhline(-3*s)
+    bdiff = moving_average(bdiff, 5)
 
     medx = x[int(len(x)/2)]
     ix = find_le_ix(a, medx)
@@ -170,15 +222,18 @@ def estimate_threshold(vals, plot=False):
 
         ix -= 1
     thresh = a[ix]
-
-    if plot:
-        ax2.axvline(thresh)
-        plt.show()
-
+    print(thresh)
     return thresh
 
+@njit
+def project_down(rotated, data, data_row):
+    # projection = rotated.sum(axis=0)
+    for i in range(rotated.shape[0]):
+        for j in range(rotated.shape[1]):
+            data[data_row, j] += rotated[i, j]
 
 
+@profile
 def main():
     image = cv2.imread(sys.argv[1])
     original_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(np.float32)
@@ -195,11 +250,10 @@ def main():
 
     data = np.zeros((len(angles), cols))
     for i, angle in enumerate(angles):
+
         rotated = imutils.rotate(edged, angle)
-        projection = rotated.sum(axis=0)
-        assert projection.size == cols
-        for j in range(cols):
-            data[i, j] += projection[j]
+        assert rotated.shape[1] == cols
+        project_down(rotated, data, i)
 
     # TODO scale threshold dynamically to get a reasonable number of detections
     xy = peak_local_max(data, min_distance=5,threshold_abs=np.max(data)*.4)
@@ -308,21 +362,27 @@ def main():
     # print(map_uv_to_xy(0, 1, *wakka, *normals))
 
     out = get_square_image(original_gray, width_pixels, height_pixels, sorted_points)
+    # plt.imshow(out)
+    # plt.show()
+    return
     segments = slic(out, multichannel=False)
     segnemt_nums = set(segments.flatten())
+    print(segnemt_nums)
+    print(list(range(segnemt_nums[0], segnemt_nums[-1])))
     thresh_arr = np.array(out.shape, out.dtype)
     threshed = np.zeros(out.shape, np.bool)
     for seg in segnemt_nums:
         print(seg)
         mask = segments == seg
-        thresh = estimate_threshold(out[mask])
+        flattened_arr = out[mask]
+        thresh = estimate_threshold(flattened_arr)
         mask = (segments == seg) & (out > thresh)
         threshed[mask] = True
 
-    plt.imshow(threshed)
+    # plt.imshow(threshed)
     # plt.imshow(mark_boundaries(out/255.0, segments), cmap=cm.gray, interpolation='nearest')
 
-    plt.show()
+    # plt.show()
 
 
 if __name__ == '__main__':
