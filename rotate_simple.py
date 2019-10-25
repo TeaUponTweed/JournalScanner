@@ -1,9 +1,11 @@
 import sys
 import itertools
+import math
 
 import numpy as np
 import scipy as sp
 from scipy.ndimage.interpolation import map_coordinates
+from scipy.ndimage.morphology import binary_opening
 
 import imutils
 import cv2
@@ -17,9 +19,13 @@ from skimage.filters import scharr
 from skimage.draw import line_aa
 from skimage.feature import peak_local_max
 from skimage.measure import block_reduce
+# from skimage.filter import tv_denoise
+from skimage.restoration import (denoise_tv_chambolle)
 # import skimage
+from skimage.measure import label, regionprops
 from skimage.segmentation import mark_boundaries, slic
 from numba import njit, jit, prange
+from PIL import Image
 
 def resize(im):
     desired_size = max(im.shape)
@@ -47,19 +53,21 @@ def find_intercept(l1, l2):
         assert np.isclose(y1+m*dy1, y2+n*dy2)
         return x1+m*dx1, y1+m*dy1
 
+def two_norm(a):
+    return math.sqrt(a[0]*a[0] + a[1]*a[1])
 # @njit
 def find_normals(P):
     # find pointing unit vectors assuming clock-wise points
-    r10 = (P[1] - P[0])/np.linalg.norm(P[1] - P[0])
-    r21 = (P[2] - P[1])/np.linalg.norm(P[2] - P[1])
-    r32 = (P[3] - P[2])/np.linalg.norm(P[3] - P[2])
-    r03 = (P[0] - P[3])/np.linalg.norm(P[0] - P[3])
+    r10 = (P[1] - P[0])/two_norm(P[1] - P[0])
+    r21 = (P[2] - P[1])/two_norm(P[2] - P[1])
+    r32 = (P[3] - P[2])/two_norm(P[3] - P[2])
+    r03 = (P[0] - P[3])/two_norm(P[0] - P[3])
     # rotate by 90deg to get normal vectors inward
-    N0 = np.array([-r03[1],r03[0]])
-    N1 = np.array([-r10[1],r10[0]])
-    N2 = np.array([-r21[1],r21[0]])
-    N3 = np.array([-r32[1],r32[0]])
-    return [N0, N1, N2, N3]
+    N0 = [-r03[1],r03[0]]
+    N1 = [-r10[1],r10[0]]
+    N2 = [-r21[1],r21[0]]
+    N3 = [-r32[1],r32[0]]
+    return (N0, N1, N2, N3)
 
 
 # @njit
@@ -88,7 +96,7 @@ def map_uv_to_xy(u, v, P, N):
     x = b_0 * ( v*N[3][1]-nv*N[1][1]) + b_1*(-u*N[2][1]+nu*N[0][1])
     y = b_0 * (-v*N[3][0]+nv*N[1][0]) + b_1*( u*N[2][0]-nu*N[0][0])
     # print(u,v,'->',int(x),int(y))
-    return np.array([x, y])
+    return x, y
 
 # @njit
 def get_sample_xy_points(points, normals, npoints, height_pixels, width_pixels):
@@ -121,6 +129,7 @@ def get_square_impl(xx, yy, gray):
             out[i, j] = gray[yy[i, j], xx[i, j]]
     return out
 
+# @profile
 def get_square_image(gray, width_pixels, height_pixels, points):
     normals = find_normals(points)
     out = np.zeros((height_pixels, width_pixels))
@@ -142,8 +151,9 @@ def get_square_image(gray, width_pixels, height_pixels, points):
     np.rint(yy, out=yy)
     np.clip(yy, a_min=0, a_max=None, out=yy)
     yy = yy.astype(np.int)
-
-    return get_square_impl(xx, yy, gray)
+    return gray[yy, xx]
+    # return gray[yy.flatten(), xx.flatten()].reshape((height_pixels, width_pixels))
+    # return get_square_impl(xx, yy, gray)
 
     # print(xx.shape)
     # print(yy.shape)
@@ -190,7 +200,6 @@ def estimate_threshold(x):
     # x = sorted(vals)
     # x.sort()
     y = np.linspace(0, 1, len(x))
-    print(len(x))
     a, b = [], []
     dy = 1/len(x)
     for i in range(len(x) - 1):
@@ -222,21 +231,22 @@ def estimate_threshold(x):
 
         ix -= 1
     thresh = a[ix]
-    print(thresh)
     return thresh
 
-@njit
-def project_down(rotated, data, data_row):
-    # projection = rotated.sum(axis=0)
-    for i in range(rotated.shape[0]):
-        for j in range(rotated.shape[1]):
-            data[data_row, j] += rotated[i, j]
+# @njit
+# def project_down(rotated, data, data_row):
+#     # projection = rotated.sum(axis=0)
+#     for i in range(rotated.shape[0]):
+#         for j in range(rotated.shape[1]):
+#             data[data_row, j] += rotated[i, j]
 
 
-@profile
+# def mad(x):
+    # return np.median(np.abs(x-np.median(x)))
+# @profile
 def main():
     image = cv2.imread(sys.argv[1])
-    original_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY).astype(np.float32)
+    original_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)#.astype(np.float64)
     # TODO scale down image intelligently
     SHRINK_FACTOR=8
     gray = block_reduce(original_gray, (SHRINK_FACTOR, SHRINK_FACTOR))
@@ -253,10 +263,14 @@ def main():
 
         rotated = imutils.rotate(edged, angle)
         assert rotated.shape[1] == cols
-        project_down(rotated, data, i)
+        # rotated = 
+        data[i, :] = rotated.sum(axis=0)
+        # project_down(rotated, data, i)
 
     # TODO scale threshold dynamically to get a reasonable number of detections
-    xy = peak_local_max(data, min_distance=5,threshold_abs=np.max(data)*.4)
+    flat_data = data.flatten()
+    peak_thresh = np.median(flat_data) + 3*1.4826*mad(flat_data)
+    xy = peak_local_max(data, min_distance=5,threshold_abs=peak_thresh)
 
     lines = []
     for (rotation, extent) in xy:
@@ -327,10 +341,12 @@ def main():
     score, sorted_points, deltas = max(gen_scored_points(), key=lambda x: x[0])
     print(sorted_points)
     # plt.imshow(gray, cmap=cm.gray, interpolation='nearest')
+    # plt.show()
     print('score=',score)
 
     # undistort image
     width_over_height = 11/8.5
+    # SHRINK_FACTOR = 1
     width_pixels = SHRINK_FACTOR*int(np.round(max(map(np.linalg.norm, deltas)))) # assumes wide image
     height_pixels = SHRINK_FACTOR*int(np.round(max(map(np.linalg.norm, deltas))/width_over_height))
     sorted_points = [p.astype(float)*SHRINK_FACTOR for p in sorted_points]
@@ -362,26 +378,47 @@ def main():
     # print(map_uv_to_xy(0, 1, *wakka, *normals))
 
     out = get_square_image(original_gray, width_pixels, height_pixels, sorted_points)
-    # plt.imshow(out)
+    # f, (ax1, ax2) = plt.subplots(2, sharex=True, sharey=True)
+    # ax1.imshow(out, cmap=cm.gray, interpolation='nearest')
+    # out = denoise_tv_chambolle(out, weight=10, multichannel=False).astype(np.float64)
+
+    # ax2.imshow(denoised, cmap=cm.gray, interpolation='nearest')
     # plt.show()
-    return
-    segments = slic(out, multichannel=False)
-    segnemt_nums = set(segments.flatten())
-    print(segnemt_nums)
-    print(list(range(segnemt_nums[0], segnemt_nums[-1])))
+    # return
+    segments = slic(out, multichannel=False, n_segments=30)
+    segment_nums = list(range(segments.min(), segments.max()+1))
     thresh_arr = np.array(out.shape, out.dtype)
     threshed = np.zeros(out.shape, np.bool)
-    for seg in segnemt_nums:
-        print(seg)
+
+    for seg in segment_nums:
+        # print(seg)
         mask = segments == seg
         flattened_arr = out[mask]
         thresh = estimate_threshold(flattened_arr)
+        print(seg, thresh)
         mask = (segments == seg) & (out > thresh)
         threshed[mask] = True
 
-    # plt.imshow(threshed)
-    # plt.imshow(mark_boundaries(out/255.0, segments), cmap=cm.gray, interpolation='nearest')
+    # threshed = binary_opening(threshed, structure=np.ones((3,3))).astype(np.int)
+    label_img = label(threshed, connectivity=1, background=1)
 
+    # plt.imshow(label_img, cmap=cm.prism)
+    # plt.show()
+    props = regionprops(label_img)
+
+    all_dark_area = sum(p.area for p in props)
+    most_dark_areas = sorted(p.area for p in props)[-4:]
+    for prop in props:
+        if (prop.area > 0.10*all_dark_area) and (prop.area in most_dark_areas):
+            for (row, col) in prop.coords:
+                threshed[row, col] = 1
+
+    # plt.imshow(threshed, cmap=cm.gray, interpolation='nearest')
+    rescaled = (255.0 * threshed).astype(np.uint8)
+
+    im = Image.fromarray(rescaled)
+    im.save('out.png')
+    # plt.savefig('out.png')
     # plt.show()
 
 
