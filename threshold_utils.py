@@ -2,14 +2,17 @@ import numpy as np
 
 def estimate_threshold(image):
 	pixel_vals = image.flatten()
-	# print(pixel_vals)
+	print(np.std(pixel_vals))
+	if np.std(pixel_vals) < 10:
+		return 0
+
 	median_val = np.median(pixel_vals)
 	def gen_thresh_scores():
 		for thresh in range(10, int(median_val)+1):
 			mask = pixel_vals < thresh
 			left = pixel_vals[mask]
 			right = pixel_vals[~mask]
-			if (left.size/pixel_vals.size < .08):# or (right.size < 3):
+			if (left.size/pixel_vals.size < .1):# or (right.size < 3):
 				continue
 
 			left_mean = np.mean(left)
@@ -63,6 +66,7 @@ def threshold_image(image):
 		smoothed_thresholds[i,bins-1] = smoothed_thresholds[i,bins-2]
 		smoothed_thresholds[bins-1,i] = smoothed_thresholds[bins-2,i]
 	print(smoothed_thresholds)
+
 	out = np.zeros(image.shape, np.uint8)
 	out += 255
 	for i in range(bins):

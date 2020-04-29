@@ -7,17 +7,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy as sp
 from skimage.feature import canny
-from skimage.morphology import binary_dilation
+from skimage.filters import unsharp_mask
+from skimage.morphology import binary_dilation, binary_opening
+from skimage.filters.rank import median
+from skimage.morphology import disk
 
 import line_utils
 import rectification_utils
 import threshold_utils
 
-PLOT_EXTRACTED_DOCUMENT = False
+PLOT_EXTRACTED_DOCUMENT = True
 DOCUMENT_ASPECT = 11/8.5
 
 def decimate_image(image, max_side_length=256):
-    shrink_factor = int(max(image.shape)/max_side_length)
+    shrink_factor = int(min(image.shape)/max_side_length)
     if shrink_factor > 1:
         image = image[::shrink_factor, ::shrink_factor]
     else:
@@ -75,12 +78,24 @@ def main(image_file):
         plt.xlim(0, image.shape[1])
         plt.ylim(0, image.shape[0])
         plt.show()
-
+    # extract document into an approximate rectangle
     document_image = rectify_document(image, decimation_factor*document_corners)
+    # sharpen document to make text stand out
+    document_image = median(document_image, disk(3))
+    document_image = unsharp_mask(document_image, radius=5, amount=2)
+    print(document_image)
+    print(document_image.min())
+    print(document_image.max())
+    document_image*=255
+    document_image = document_image.astype(np.uint8)
+
     plt.imshow(document_image, cmap='gray', vmin=0, vmax=255)
     plt.show()
     document_image = threshold_image(document_image)
     plt.imshow(document_image, cmap='gray', vmin=0, vmax=255)
+    # TODO deal with speckle noise
+    # document_image = binary_opening(document_image, selem=np.ones((3,3)))
+    # plt.imshow(255*document_image, cmap='gray', vmin=0, vmax=255)
     plt.show()
 
 

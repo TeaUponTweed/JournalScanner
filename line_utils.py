@@ -86,6 +86,7 @@ def _find_quadrilateral(peaks, origin, score_image):
                 if angle < 60 or angle > 120:
                     score = 0
                     break
+                # TODO make sure quadrilateral is convex
 
                 rr,cc,vals =line_aa(p1[1], p1[0], p2[1], p2[0])
                 ix_1 = rr < score_image.shape[0]-1
