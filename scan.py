@@ -13,7 +13,7 @@ from skimage.morphology import binary_dilation
 from skimage.transform import hough_line, hough_line_peaks
 
 
-PLOT_EXTRACTED_DOCUMENT = False
+PLOT_EXTRACTED_DOCUMENT = True
 
 def decimate_image(image, max_side_length=256):
     shrink_factor = int(max(image.shape)/max_side_length)
@@ -138,7 +138,7 @@ def main(image_file):
     # find document in image
     document_corners = find_document(downsampled_image)
     if PLOT_EXTRACTED_DOCUMENT:
-        plt.imshow(downsampled_image)
+        plt.imshow(downsampled_image, cmap='gray', vmin=0, vmax=255)
         x, y = zip(*document_corners)
         x, y = [*x, x[0]], [*y, y[0]]
         plt.plot(x, y, color='r', marker='x')
