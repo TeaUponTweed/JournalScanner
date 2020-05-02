@@ -1,5 +1,6 @@
 import math
 
+# import matplotlib.pyplot as plt
 # from numba import njit
 import numpy as np
 import scipy as sp
@@ -87,13 +88,13 @@ def get_sample_xy_points(points, normals, npoints, height_pixels, width_pixels):
             if r < height_pixels:
                 out_y[i,j] = r  
             else:
-                assert False
+                # assert False
                 out_y[i,j] = height_pixels - 1
 
             if c < width_pixels:
                 out_x[i,j] = c
             else:
-                assert False
+                # assert False
                 out_x[i,j] = width_pixels - 1
 
     return u, v, out_x, out_y
@@ -110,15 +111,22 @@ def get_square_image(gray, width_pixels, height_pixels, points):
     normals = find_normals(points)
     out = np.zeros((height_pixels, width_pixels))
     u, v, x_map, y_map = get_sample_xy_points(points, normals, 30, gray.shape[0], gray.shape[1])
-
+    # u, v, x_map, y_map = get_sample_xy_points(points, normals, 30, height_pixels, width_pixels)
+    # print(u)
+    # print(v)
+    # print(x_map)
+    # print(y_map)
+    # plt.imshow(out, )
+    # plt.imshow(gray, cmap='gray', vmin=0, vmax=255)
+    # plt.plot(x_map.flatten(), y_map.flatten(), marker='x', color='k')
+    # plt.show()
     x_func = sp.interpolate.interp2d(u, v, x_map)
     y_func = sp.interpolate.interp2d(u, v, y_map)
     u = np.linspace(0,1,width_pixels)
     v = np.linspace(0,1,height_pixels)
-    import matplotlib.pyplot as plt 
-    plt.imshow(gray, cmap='gray', vmin=0, vmax=255)
-    plt.plot(x_map.flatten(), y_map.flatten(), marker='x', color='k')
-    plt.show()
+    # plt.imshow(gray, cmap='gray', vmin=0, vmax=255)
+    # plt.plot(x_map.flatten(), y_map.flatten(), marker='x', color='k')
+    # plt.show()
     # uu, vv = np.meshgrid(u, v)
 
     xx = x_func(u, v)
