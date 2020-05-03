@@ -17,14 +17,11 @@ def _find_intercept(l1, l2):
     n2 = n2/np.linalg.norm(n2)
     angle = np.degrees(np.arccos(n1@n2))
 
-    # try:
-    #     m, n = np.linalg.solve(A, b)
-    # except np.linalg.linalg.LinAlgError:
-    #     return N, -1
-    # else:
     m, n = np.linalg.solve(A, b)
-    assert np.isclose(x1+m*dx1, x2+n*dx2)
-    assert np.isclose(y1+m*dy1, y2+n*dy2)
+
+    # assert np.isclose(x1+m*dx1, x2+n*dx2)
+    # assert np.isclose(y1+m*dy1, y2+n*dy2)
+
     return x1+m*dx1, y1+m*dy1, angle
 
 def find_quadrilateral(edges, debug_plotting=False):
@@ -95,7 +92,6 @@ def _find_quadrilateral(peaks, origin, score_image):
 
             sorted_points = [np.round(p).astype(np.int) for p in sorted_points]
             score = 0
-            # deltas = [sorted_points[0] - sorted_points[-1]]
             for i in range(5):
                 p1 = sorted_points[i%4]
                 p2 = sorted_points[(i+1)%4]
