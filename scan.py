@@ -10,12 +10,12 @@ import numpy as np
 from PIL import Image
 import scipy as sp
 from skimage.feature import canny
-from skimage.filters import unsharp_mask, threshold_sauvola
+from skimage.filters import unsharp_mask, threshold_sauvola, threshold_niblack
 from skimage.morphology import binary_dilation, binary_opening
 from skimage.filters.rank import median
 from skimage.morphology import disk
 from shapely.geometry import Polygon
-
+from skimage.restoration import denoise_tv_chambolle
 import line_utils
 import rectification_utils
 import threshold_utils
@@ -78,24 +78,16 @@ def threshold_image(image):
     dpi = np.mean([image.shape[0]/8.5, image.shape[1]/11])
     window_size = int(dpi/30)
 
-    # remove some noise
-    image = median(image, disk(2))
-
-    # sharpen document to make text stand out
-    image = unsharp_mask(image, radius=window_size, amount=5)
-
-    # convert back to 8 bit grayscale image
-    image*=255
-    image = image.astype(np.uint8)
-
     # threshold
-    thresh = threshold_sauvola(image, window_size = 2*window_size+1)
+    ## 73.6 ~= (1/12 (255 - 0)**2)**.5, the standard deviation of a uniform distribion with range [0,255]
+    thresh = threshold_sauvola(image, window_size = 2*window_size+1, k=.1, r=73.6121593217)
+    # niblack looks better in the region of the text, and handles color better, but can't handle the background
+    # thresh = threshold_niblack(image, window_size = 2*2*window_size+1)
+
     image = ((image > thresh) * 255).astype(np.uint8)
 
-    # one final filter to remove salt and pepper noise
-    image = median(image, disk(2))
-
     return image
+
 
 def main(image_file, outfile=None):
     # load in image
