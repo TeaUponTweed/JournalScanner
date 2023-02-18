@@ -1,0 +1,5 @@
+python_venv/
+.DS_Store
+src/sdp.egg-info/
+__pycache__/
+src/scansnake.egg-info/

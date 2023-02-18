@@ -1,87 +1,89 @@
-import sys
 import itertools
 import math
+import sys
 
+import cv2
+import imutils
+import matplotlib
 import numpy as np
 import scipy as sp
 from scipy.ndimage.interpolation import map_coordinates
 from scipy.ndimage.morphology import binary_opening
 
-import imutils
-import cv2
-import matplotlib
-matplotlib.use('Qt5Agg')
-import matplotlib.pyplot as plt 
+matplotlib.use("Qt5Agg")
 import matplotlib.cm as cm
+import matplotlib.pyplot as plt
+from numba import jit, njit, prange
+from PIL import Image
 from scipy import signal
-
-from skimage.filters import scharr
 from skimage.draw import line_aa
 from skimage.feature import peak_local_max
-from skimage.measure import block_reduce
-# from skimage.filter import tv_denoise
-from skimage.restoration import (denoise_tv_chambolle)
-# import skimage
-from skimage.measure import label, regionprops
+from skimage.filters import scharr
+from skimage.measure import block_reduce, label, regionprops
+from skimage.restoration import denoise_tv_chambolle
 from skimage.segmentation import mark_boundaries, slic
-from numba import njit, jit, prange
-from PIL import Image
+
 
 def resize(im):
     desired_size = max(im.shape)
     delta_w = desired_size - im.shape[1]
     delta_h = desired_size - im.shape[0]
-    top, bottom = delta_h//2, delta_h-(delta_h//2)
-    left, right = delta_w//2, delta_w-(delta_w//2)
+    top, bottom = delta_h // 2, delta_h - (delta_h // 2)
+    left, right = delta_w // 2, delta_w - (delta_w // 2)
 
     color = [0, 0, 0]
-    new_im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT,
-        value=color)
+    new_im = cv2.copyMakeBorder(
+        im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color
+    )
     return new_im
+
 
 def find_intercept(l1, l2):
     (x1, y1, dx1, dy1) = l1
     (x2, y2, dx2, dy2) = l2
-    A = np.array([[dx1, -dx2],[dy1,-dy2]])
-    b = np.array([x2-x1, y2-y1])
+    A = np.array([[dx1, -dx2], [dy1, -dy2]])
+    b = np.array([x2 - x1, y2 - y1])
     try:
         m, n = np.linalg.solve(A, b)
     except np.linalg.linalg.LinAlgError:
         return -1, -1
     else:
-        assert np.isclose(x1+m*dx1, x2+n*dx2)
-        assert np.isclose(y1+m*dy1, y2+n*dy2)
-        return x1+m*dx1, y1+m*dy1
+        assert np.isclose(x1 + m * dx1, x2 + n * dx2)
+        assert np.isclose(y1 + m * dy1, y2 + n * dy2)
+        return x1 + m * dx1, y1 + m * dy1
+
 
 def two_norm(a):
-    return math.sqrt(a[0]*a[0] + a[1]*a[1])
+    return math.sqrt(a[0] * a[0] + a[1] * a[1])
+
+
 # @njit
 def find_normals(P):
     # find pointing unit vectors assuming clock-wise points
-    r10 = (P[1] - P[0])/two_norm(P[1] - P[0])
-    r21 = (P[2] - P[1])/two_norm(P[2] - P[1])
-    r32 = (P[3] - P[2])/two_norm(P[3] - P[2])
-    r03 = (P[0] - P[3])/two_norm(P[0] - P[3])
+    r10 = (P[1] - P[0]) / two_norm(P[1] - P[0])
+    r21 = (P[2] - P[1]) / two_norm(P[2] - P[1])
+    r32 = (P[3] - P[2]) / two_norm(P[3] - P[2])
+    r03 = (P[0] - P[3]) / two_norm(P[0] - P[3])
     # rotate by 90deg to get normal vectors inward
-    N0 = [-r03[1],r03[0]]
-    N1 = [-r10[1],r10[0]]
-    N2 = [-r21[1],r21[0]]
-    N3 = [-r32[1],r32[0]]
+    N0 = [-r03[1], r03[0]]
+    N1 = [-r10[1], r10[0]]
+    N2 = [-r21[1], r21[0]]
+    N3 = [-r32[1], r32[0]]
     return (N0, N1, N2, N3)
 
 
 # @njit
 def map_uv_to_xy(u, v, P, N):
-    '''
+    """
     A[0, :] = u*N[2]-(1-u)*N[0]
     A[1, :] = v*N[3]-(1-v)*N[1]
     b[0] = u*P[2]@N[2]-(1-u)*P[0]@N[0]
     b[1] = v*P[3]@N[3]-(1-v)*P[0]@N[1]
     return np.linalg.solve(A, b)
-    '''
+    """
     nu = 1 - u
     nv = 1 - v
-    '''
+    """
     A =
     u*N[2][0]-nu*N[0][0]  u*N[2][1]-nu*N[0][1]
     v*N[3][0]-nv*N[1][0]  v*N[3][1]-nv*N[1][1]
@@ -90,13 +92,18 @@ def map_uv_to_xy(u, v, P, N):
      v*N[3][1]-nv*N[1][1]  -u*N[2][1]+nu*N[0][1]
     -v*N[3][0]+nv*N[1][0]   u*N[2][0]-nu*N[0][0]
     
-    '''
-    b_0 = u*(P[2][0]*N[2][0] + P[2][1]*N[2][1])-nu*(P[0][0]*N[0][0] + P[0][1]*N[0][1])
-    b_1 = v*(P[3][0]*N[3][0] + P[3][1]*N[3][1])-nv*(P[0][0]*N[1][0] + P[0][1]*N[1][1])
-    x = b_0 * ( v*N[3][1]-nv*N[1][1]) + b_1*(-u*N[2][1]+nu*N[0][1])
-    y = b_0 * (-v*N[3][0]+nv*N[1][0]) + b_1*( u*N[2][0]-nu*N[0][0])
+    """
+    b_0 = u * (P[2][0] * N[2][0] + P[2][1] * N[2][1]) - nu * (
+        P[0][0] * N[0][0] + P[0][1] * N[0][1]
+    )
+    b_1 = v * (P[3][0] * N[3][0] + P[3][1] * N[3][1]) - nv * (
+        P[0][0] * N[1][0] + P[0][1] * N[1][1]
+    )
+    x = b_0 * (v * N[3][1] - nv * N[1][1]) + b_1 * (-u * N[2][1] + nu * N[0][1])
+    y = b_0 * (-v * N[3][0] + nv * N[1][0]) + b_1 * (u * N[2][0] - nu * N[0][0])
     # print(u,v,'->',int(x),int(y))
     return x, y
+
 
 # @njit
 def get_sample_xy_points(points, normals, npoints, height_pixels, width_pixels):
@@ -110,16 +117,17 @@ def get_sample_xy_points(points, normals, npoints, height_pixels, width_pixels):
             r = int(xy[1])
             c = int(xy[0])
             if r < height_pixels:
-                out_y[i,j] = r  
+                out_y[i, j] = r
             else:
-                out_y[i,j] = height_pixels - 1
+                out_y[i, j] = height_pixels - 1
 
             if c < width_pixels:
-                out_x[i,j] = c
+                out_x[i, j] = c
             else:
-                out_x[i,j] = width_pixels - 1
+                out_x[i, j] = width_pixels - 1
 
     return u, v, out_x, out_y
+
 
 @njit
 def get_square_impl(xx, yy, gray):
@@ -129,16 +137,19 @@ def get_square_impl(xx, yy, gray):
             out[i, j] = gray[yy[i, j], xx[i, j]]
     return out
 
+
 # @profile
 def get_square_image(gray, width_pixels, height_pixels, points):
     normals = find_normals(points)
     out = np.zeros((height_pixels, width_pixels))
-    u, v, x_map, y_map = get_sample_xy_points(points, normals, 100, height_pixels, width_pixels)
+    u, v, x_map, y_map = get_sample_xy_points(
+        points, normals, 100, height_pixels, width_pixels
+    )
 
     x_func = sp.interpolate.interp2d(u, v, x_map)
     y_func = sp.interpolate.interp2d(u, v, y_map)
-    u = np.linspace(0,1,width_pixels)
-    v = np.linspace(0,1,height_pixels)
+    u = np.linspace(0, 1, width_pixels)
+    v = np.linspace(0, 1, height_pixels)
 
     # uu, vv = np.meshgrid(u, v)
 
@@ -172,27 +183,30 @@ def get_square_image(gray, width_pixels, height_pixels, points):
     #             out[i,j] = val
 
     # return out
- 
+
+
 # TODO
 # * Segment out edges and set them to white
 # * adaptive threshold that is consistent between nearby superpixels
 @njit
 def mad(x):
-    return np.median(np.abs(x  - np.median(x)))
+    return np.median(np.abs(x - np.median(x)))
 
 
 @njit
 def find_le_ix(a, x):
-    
-    'Find rightmost value less than or equal to x'
+    "Find rightmost value less than or equal to x"
     i = np.searchsorted(a, x)
     if i:
-        return i-1
+        return i - 1
     raise ValueError
+
+
 @njit
 def moving_average(a, n):
     cumsum = np.cumsum(a)
-    return (cumsum[n:] - cumsum[:-n])/n
+    return (cumsum[n:] - cumsum[:-n]) / n
+
 
 @njit
 def estimate_threshold(x):
@@ -201,15 +215,15 @@ def estimate_threshold(x):
     # x.sort()
     y = np.linspace(0, 1, len(x))
     a, b = [], []
-    dy = 1/len(x)
+    dy = 1 / len(x)
     for i in range(len(x) - 1):
-        dx = x[i+1] - x[i]
+        dx = x[i + 1] - x[i]
         if dx == 0:
-            dy += 1/len(x)
+            dy += 1 / len(x)
         else:
             a.append(x[i])
-            b.append(dy/dx)
-            dy = 1/len(x)
+            b.append(dy / dx)
+            dy = 1 / len(x)
 
     a = np.array(a)
     b = np.array(b)
@@ -218,13 +232,13 @@ def estimate_threshold(x):
     s = mad(bdiff)
     bdiff = moving_average(bdiff, 5)
 
-    medx = x[int(len(x)/2)]
+    medx = x[int(len(x) / 2)]
     ix = find_le_ix(a, medx)
     was_above = False
     maxb = np.max(b)
     while ix > 0:
-        if abs(bdiff[ix]) < 3*s:
-            if was_above and b[ix] < maxb/10:
+        if abs(bdiff[ix]) < 3 * s:
+            if was_above and b[ix] < maxb / 10:
                 break
         else:
             was_above = True
@@ -232,6 +246,7 @@ def estimate_threshold(x):
         ix -= 1
     thresh = a[ix]
     return thresh
+
 
 # @njit
 # def project_down(rotated, data, data_row):
@@ -242,53 +257,49 @@ def estimate_threshold(x):
 
 
 # def mad(x):
-    # return np.median(np.abs(x-np.median(x)))
+# return np.median(np.abs(x-np.median(x)))
 # @profile
 def main():
     image = cv2.imread(sys.argv[1])
-    original_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)#.astype(np.float64)
+    original_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)  # .astype(np.float64)
     # TODO scale down image intelligently
-    SHRINK_FACTOR=8
+    SHRINK_FACTOR = 8
     gray = block_reduce(original_gray, (SHRINK_FACTOR, SHRINK_FACTOR))
-    im_rows,im_cols = gray.shape
+    im_rows, im_cols = gray.shape
     edged = scharr(gray)
     original_edged = edged
     edged = resize(edged)
 
-    rows,cols = edged.shape
+    rows, cols = edged.shape
     angles = np.arange(0, 185, 0.5)
 
     data = np.zeros((len(angles), cols))
     for i, angle in enumerate(angles):
-
         rotated = imutils.rotate(edged, angle)
         assert rotated.shape[1] == cols
-        # rotated = 
+        # rotated =
         data[i, :] = rotated.sum(axis=0)
         # project_down(rotated, data, i)
 
     # TODO scale threshold dynamically to get a reasonable number of detections
     flat_data = data.flatten()
-    peak_thresh = np.median(flat_data) + 3*1.4826*mad(flat_data)
-    xy = peak_local_max(data, min_distance=5,threshold_abs=peak_thresh)
+    peak_thresh = np.median(flat_data) + 3 * 1.4826 * mad(flat_data)
+    xy = peak_local_max(data, min_distance=5, threshold_abs=peak_thresh)
 
     lines = []
-    for (rotation, extent) in xy:
+    for rotation, extent in xy:
         score = data[rotation, extent]
         theta = np.radians(angles[rotation])
         dx = np.cos(theta)
         dy = np.sin(theta)
-        a = extent - cols/2
+        a = extent - cols / 2
 
-        x = a*dx + cols/2-(cols-im_cols)/2
-        y = a*dy + rows/2-(rows-im_rows)/2
+        x = a * dx + cols / 2 - (cols - im_cols) / 2
+        y = a * dy + rows / 2 - (rows - im_rows) / 2
         r = np.array([dx, dy])
-        R = np.array([
-            [0, -1.0],
-            [1.0, 0]
-        ])
-        dx,dy = R @ r
-        lines.append((x,y,dx,dy))
+        R = np.array([[0, -1.0], [1.0, 0]])
+        dx, dy = R @ r
+        lines.append((x, y, dx, dy))
 
     intersection_points = []
     for l1, l2 in itertools.combinations(lines, 2):
@@ -304,7 +315,7 @@ def main():
             points = list(map(np.array, sorted(points, key=lambda x: -sum(x))))
             sorted_points = [points.pop()[:2]]
             while len(points) > 0:
-                points.sort(key=lambda x: -min(np.abs(np.array(x)-sorted_points[-1])))
+                points.sort(key=lambda x: -min(np.abs(np.array(x) - sorted_points[-1])))
                 sorted_points.append(points.pop())
 
             sorted_points = [np.round(p).astype(int) for p in sorted_points]
@@ -312,44 +323,54 @@ def main():
             deltas = [sorted_points[0] - sorted_points[-1]]
             for i in range(4):
                 p1 = sorted_points[i]
-                p2 = sorted_points[(i+1)%4]
+                p2 = sorted_points[(i + 1) % 4]
 
                 delta = p2 - p1
                 # filter out small edges
                 # print('|delta|=',np.linalg.norm(delta))
-                if np.linalg.norm(delta) < min(im_rows, im_cols)/2:
+                if np.linalg.norm(delta) < min(im_rows, im_cols) / 2:
                     score = 0
                     break
 
                 # filter out acute angles
-                angle = np.degrees(np.arccos(delta@deltas[-1]/np.linalg.norm(delta)/np.linalg.norm(deltas[-1])))
+                angle = np.degrees(
+                    np.arccos(
+                        delta
+                        @ deltas[-1]
+                        / np.linalg.norm(delta)
+                        / np.linalg.norm(deltas[-1])
+                    )
+                )
                 # print('angle=', angle)
                 if angle < 60 or angle > 120:
                     score = 0
                     break
 
-                rr,cc,vals =line_aa(p1[1], p1[0], p2[1], p2[0])
-                ix_1 = rr < im_rows-1
-                ix_2 = cc < im_cols-1
+                rr, cc, vals = line_aa(p1[1], p1[0], p2[1], p2[0])
+                ix_1 = rr < im_rows - 1
+                ix_2 = cc < im_cols - 1
                 ix = ix_1 * ix_2
                 score += np.sum(vals[ix] * original_edged[rr[ix], cc[ix]])
                 deltas.append(delta)
 
             yield score, sorted_points, deltas
 
-
     score, sorted_points, deltas = max(gen_scored_points(), key=lambda x: x[0])
     print(sorted_points)
     # plt.imshow(gray, cmap=cm.gray, interpolation='nearest')
     # plt.show()
-    print('score=',score)
+    print("score=", score)
 
     # undistort image
-    width_over_height = 11/8.5
+    width_over_height = 11 / 8.5
     # SHRINK_FACTOR = 1
-    width_pixels = SHRINK_FACTOR*int(np.round(max(map(np.linalg.norm, deltas)))) # assumes wide image
-    height_pixels = SHRINK_FACTOR*int(np.round(max(map(np.linalg.norm, deltas))/width_over_height))
-    sorted_points = [p.astype(float)*SHRINK_FACTOR for p in sorted_points]
+    width_pixels = SHRINK_FACTOR * int(
+        np.round(max(map(np.linalg.norm, deltas)))
+    )  # assumes wide image
+    height_pixels = SHRINK_FACTOR * int(
+        np.round(max(map(np.linalg.norm, deltas)) / width_over_height)
+    )
+    sorted_points = [p.astype(float) * SHRINK_FACTOR for p in sorted_points]
 
     # TODO make this optional
     # color = ['r','b','g','k']
@@ -386,7 +407,7 @@ def main():
     # plt.show()
     # return
     segments = slic(out, multichannel=False, n_segments=30)
-    segment_nums = list(range(segments.min(), segments.max()+1))
+    segment_nums = list(range(segments.min(), segments.max() + 1))
     thresh_arr = np.array(out.shape, out.dtype)
     threshed = np.zeros(out.shape, np.bool)
 
@@ -409,18 +430,18 @@ def main():
     all_dark_area = sum(p.area for p in props)
     most_dark_areas = sorted(p.area for p in props)[-4:]
     for prop in props:
-        if (prop.area > 0.10*all_dark_area) and (prop.area in most_dark_areas):
-            for (row, col) in prop.coords:
+        if (prop.area > 0.10 * all_dark_area) and (prop.area in most_dark_areas):
+            for row, col in prop.coords:
                 threshed[row, col] = 1
 
     # plt.imshow(threshed, cmap=cm.gray, interpolation='nearest')
     rescaled = (255.0 * threshed).astype(np.uint8)
 
     im = Image.fromarray(rescaled)
-    im.save('out.png')
+    im.save("out.png")
     # plt.savefig('out.png')
     # plt.show()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
