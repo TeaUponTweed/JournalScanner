@@ -43,7 +43,7 @@ packaging==23.0
     # via
     #   matplotlib
     #   scikit-image
-pillow==9.4.0
+pillow==10.0.1
     # via
     #   imageio
     #   matplotlib
